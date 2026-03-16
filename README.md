@@ -128,7 +128,7 @@ This modular architecture ensures reliable real-time operation while handling ne
 The measured frequency is displayed locally on the OLED screen.
 
 <p align="center">
-  <img src="images/oled_display.png" width="350">
+  <img src="images/oled_display.png" width="200">
 </p>
 
 The firmware calculates frequency by measuring the time interval between pulse edges.
