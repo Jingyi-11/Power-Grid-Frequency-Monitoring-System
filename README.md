@@ -5,20 +5,24 @@ The system measures mains frequency with high precision and uploads timestamped 
 
 This project integrates **embedded hardware, signal conditioning circuits, real-time firmware, and cloud data logging** to create an open and scalable frequency monitoring platform.
 
-![device](images/frequency_plot.png)
-
+<p align="center">
+  <img src="images/device.png" width="400">
+  <img src="images/oled.png" width="220">
+</p>
 
 ## Overview
 
 Maintaining stable grid frequency is critical for reliable power system operation.
 Frequency reflects the real-time balance between power generation and demand, and deviations can indicate system disturbances or instability.
 
-This project develops a compact embedded monitoring device capable of:
+Traditional monitoring systems are often expensive and limited to large-scale infrastructure. This project explores a **low-cost embedded solution** for continuous frequency monitoring using a microcontroller-based platform.
 
-- High-precision frequency measurement
-- Real-time local display
-- Wireless cloud data upload
-- Long-term frequency monitoring
+The developed system is capable of:
+
+- Measuring grid frequency in real time
+- Displaying measurements locally on an OLED display
+- Uploading timestamped data to a cloud database
+- Performing long-term monitoring and analysis
 
 Key features:
 
@@ -39,154 +43,134 @@ The system consists of two main subsystems:
 
 The device measures grid frequency in real time, displays it locally, and uploads the data to a cloud database for remote monitoring.
 
----
-
-## Hardware Design
-
-### Main Components
-
-| Component              | Function                    |
-| ---------------------- | --------------------------- |
-| ESP32 DevKitC          | Main microcontroller        |
-| LM339 Comparator       | Signal conditioning         |
-| Step-down transformer  | 230V → 12V AC conversion   |
-| Bridge rectifier       | AC waveform processing      |
-| OLED display           | Real-time frequency display |
-| Switching power module | 220V → 5V DC power supply  |
-
----
-
-### Signal Acquisition
-
-The grid voltage is converted to a digital signal through multiple stages:
-
-1. Step-down transformer
-2. Voltage divider
-3. Full-wave rectifier
-4. Comparator threshold detection
-
-This produces a **clean 100 Hz square wave**, which is used for frequency measurement.
-
----
-
-## Frequency Measurement Algorithm
-
-Frequency is calculated using **interrupt-based edge detection**.
-
-### Process
-
-1. Comparator outputs a **100 Hz digital pulse signal**
-2. ESP32 GPIO interrupt triggers on **rising edges**
-3. After **20 edges (10 cycles)**, the time interval is measured
-4. Frequency is calculated using: f = 10 / Δt
-
-Where:
-
-- Δt = time difference between two measurements
-- time measured using `micros()`
-
-### Advantages
-
-- High timing resolution
-- Low CPU overhead
-- Noise-resistant measurement
-- Suitable for embedded systems
-
-Averaging over multiple cycles improves measurement stability while maintaining real-time performance.
-
----
-
-## Firmware Architecture
-
-The firmware runs on **ESP32 with FreeRTOS**.
-
-Main modules:
-
-Key features:
-
-- Interrupt-driven signal capture
-- FreeRTOS task scheduling
-- NTP time synchronization
-- HTTPS cloud communication
-- Automatic WiFi reconnection
-
----
-
-## Data Upload & Cloud Database
-
-Frequency data is uploaded to **InfluxDB Cloud**.
-
-Each record contains:
-
-- frequency value
-- timestamp
-- device identifier
-
-### Upload Mechanism
-
-- Measurements stored in **local circular buffer**
-- Upload task runs every **5 seconds**
-- Data sent via **HTTPS POST**
-
-If WiFi disconnects:
-
-- Up to **1500 measurements are cached**
-- Data automatically uploads after reconnection
-
----
-
-## Testing & Validation
-
-### Hardware Testing
-
-The hardware subsystem was validated through:
-
-- transformer waveform analysis
-- signal conditioning verification
-- comparator output testing
-- power supply stability tests
-
-Oscilloscope measurements confirmed that the circuit generates a stable **100 Hz digital pulse** suitable for interrupt-based detection.
-
----
-
-### System Integration
-
-End-to-end tests verified:
-
-- real-time frequency calculation
-- OLED display functionality
-- WiFi connectivity
-- cloud database upload
-
----
-
-### Long-Term Reliability Test
-
-A **24-hour continuous operation test** was conducted.
-
-Results:
-
-- ~432,000 frequency samples collected
-- WiFi reconnection within **3–7 seconds**
-- data loss ≈ **0.5%**
-- no system crashes or resets
-
-The system maintained stable operation and accurate measurements during continuous monitoring.
-
----
-
-## Example Output
-
-Example OLED display:
-
 <p align="center">
-  <img src="image/oled.jpg" width="350">
+  <img src="images/system architecture.png" width="400">
 </p>
 
 ---
 
-## Future Work
+# Hardware
+
+## Hardware Design
+
+The hardware subsystem is responsible for converting the mains voltage waveform into a stable digital signal.
+
+<p align="center">
+  <img src="images/hardware_overview.png" width="500">
+</p>
+
+Key components include:
+
+| Component              | Function                                                         |
+| ---------------------- | ---------------------------------------------------------------- |
+| Step-down transformer  | 230V → 12V AC conversion; reduces mains voltage to a safe level |
+| Switching power module | 220V → 5V DC power supply                                       |
+| Rectifier circuit      | Converts AC waveform for signal processing                       |
+| LM339 comparator       | Generates digital pulses from the waveform                       |
+| ESP32 microcontroller  | Processes signal and performs frequency calculation              |
+| OLED display           | Provides real-time measurement display                           |
+
+The comparator outputs a **100 Hz square wave**, corresponding to the rectified mains signal.
+
+To measure grid frequency, the ESP32 uses an **interrupt-based timing algorithm**.
+Each rising edge of the comparator output triggers a GPIO interrupt.
+Instead of calculating frequency from a single cycle, the system measures the time required for **10 complete AC cycles (20 edges)** and computes the frequency using the elapsed time.
+
+This approach provides two advantages:
+
+- Higher measurement stability by averaging multiple cycles
+- Reduced sensitivity to noise or jitter in the signal
+
+The frequency is calculated using: f = 10 / Δt, where Δt represents the measured time for ten AC cycles.
+
+## Hardware Validation
+
+Simulation and oscilloscope measurements were performed to verify circuit performance.
+
+<p align="center">
+  <img src="images/hardware_simulation.png" width="400">
+  <img src="docs/PCB_layout.PNG" width="310">
+</p>
+
+Hardware testing confirmed:
+
+- Stable pulse generation
+- Reliable signal conditioning
+- Clean digital edges suitable for interrupt detection
+
+---
+
+# Firmware
+
+## Firmware Architecture
+
+The firmware runs on the ESP32 and is responsible for measurement, display, and communication.
+
+<p align="center">
+  <img src="images/software_overview.png" width="700">
+</p>
+
+The system uses **interrupt-based frequency measurement** combined with **FreeRTOS tasks**.
+
+Main firmware modules include:
+
+- GPIO interrupt handler for edge detection
+- Frequency calculation module
+- OLED display task
+- Data buffering system
+- WiFi communication module
+- Cloud database upload task
+
+This modular architecture ensures reliable real-time operation while handling network communication.
+
+## Frequency Measurement Results
+
+The measured frequency is displayed locally on the OLED screen.
+
+<p align="center">
+  <img src="images/oled_display.png" width="350">
+</p>
+
+The firmware calculates frequency by measuring the time interval between pulse edges.
+
+Averaging over multiple cycles improves measurement stability while maintaining responsiveness.
+
+---
+
+# Results
+
+Frequency measurements collected by the ESP32 were compared with external reference data.
+
+<p align="center">
+  <img src="images/frequency_plot.png" width="350">
+  <img src="images/Gridwatch_plot.png" width="400">
+</p>
+
+The comparison shows strong agreement between the measured frequency and publicly available grid monitoring data.
+
+Key observations:
+
+- Measurement accuracy within approximately **±0.01 Hz**
+- Stable operation over long monitoring periods
+- Successful cloud data logging and retrieval
+
+These results demonstrate that the proposed system can serve as a reliable **low-cost grid frequency monitoring solution**.
+
+## Long-Term Reliability Test
+
+To evaluate system stability, the monitoring device was operated continuously for **24 hours**.
+
+During this test:
+
+- Over **400,000 frequency samples** were recorded
+- The ESP32 maintained stable WiFi connectivity
+- Buffered data ensured no significant loss during temporary network interruptions
+
+The long-term test demonstrated that the system can reliably perform continuous monitoring without system resets or instability.
+
+---
+
+# Future Work
 
 Potential improvements include:
 
