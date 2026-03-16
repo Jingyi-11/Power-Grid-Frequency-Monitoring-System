@@ -1,4 +1,4 @@
-# Grid Frequency Monitor (ESP32)
+# Grid Frequency Monitoring System (ESP32)
 
 A low-cost **real-time grid frequency monitoring device** based on ESP32.
 The system measures mains frequency with high precision and uploads timestamped data to a cloud database for monitoring and analysis.
