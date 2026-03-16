@@ -5,7 +5,7 @@ The system measures mains frequency with high precision and uploads timestamped 
 
 This project integrates **embedded hardware, signal conditioning circuits, real-time firmware, and cloud data logging** to create an open and scalable frequency monitoring platform.
 
-![device](images/oled.png)
+![device](images/frequency_plot.png)
 
 
 ## Overview
