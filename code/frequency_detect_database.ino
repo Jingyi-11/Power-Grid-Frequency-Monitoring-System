@@ -1,0 +1,336 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <time.h>
+#include <HTTPClient.h>  
+#include <freertos/FreeRTOS.h>  
+#include <freertos/task.h>
+
+// OLED configuration
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// GPIO definitions
+#define WAVE_INPUT_GPIO 16
+#define BUTTON_PIN 0
+
+// WiFiServer class from ESP32 WiFi library
+// Used to create and manage a TCP server over WiFi
+WiFiServer server(80); // HTTP communication uses port 80 by default
+
+// Connect to external WiFi
+const char* RouterSSID = "Hyperoptic Fibre 9803";
+const char* RouterPassword = "A8848484HaK73H";
+bool statu = false;  // used to track external WiFi connection status
+
+// InfluxDB connection parameters (for InfluxDB 2.x / cloud)
+const char* influxdbUrl = "https://eu-central-1-1.aws.cloud2.influxdata.com/api/v2/write?org=Frequency_detect_monitor&bucket=get_started&precision=ms";
+const char* measurement = "frequency_data";  // measurement name for stored data
+
+// Frequency storage configuration
+#define MAX_STORED_FREQUENCIES 1500
+volatile uint32_t timeArray[10] = {0};
+volatile int count = 0;
+volatile bool newTimeAvailable = false;
+volatile float frequency = 0.0;
+volatile uint32_t lastInterruptTime = 0;
+
+// Structure storing "frequency + timestamp"
+struct FrequencyData {
+    float frequency;
+    time_t timestamp;  // timestamp stored as time_t
+};
+
+FrequencyData storedFrequencies[MAX_STORED_FREQUENCIES] = {0};
+volatile int storedIndex = 0; // index for writing new data
+volatile int sendIndex = 0;   // index for sending data to database
+
+bool displayStored = false;
+bool buttonPressed = false;
+
+volatile bool lastSignalState = LOW;  // previous signal state
+volatile uint32_t lastDebounceTime = 0;  // last signal change time
+const uint32_t debounceDelay = 200;  // debounce delay in microseconds
+
+// GPIO interrupt with debounce detection
+IRAM_ATTR void gpio_isr_handler() {
+
+    uint32_t currentTime = micros();
+    bool currentSignalState = digitalRead(WAVE_INPUT_GPIO);
+
+    // debounce: ignore changes within 200 microseconds
+    if (currentSignalState != lastSignalState && (currentTime - lastDebounceTime) > debounceDelay) {
+
+        lastDebounceTime = currentTime;
+
+        // detect rising edge
+        if (lastSignalState == LOW && currentSignalState == HIGH) {
+
+            count++;
+
+            // every 20 rising edges
+            if (count == 20) {
+                timeArray[0] = currentTime;
+                newTimeAvailable = true;
+                count = 0;
+            }
+        }
+
+        lastSignalState = currentSignalState;  // update previous signal state
+    }
+}
+
+// Button interrupt handler: toggles display mode
+void IRAM_ATTR button_isr_handler() {
+    buttonPressed = true;
+}
+
+void setup() {
+
+    // Initialize serial and GPIO
+    Serial.begin(115200);
+    pinMode(WAVE_INPUT_GPIO, INPUT);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+    attachInterrupt(WAVE_INPUT_GPIO, gpio_isr_handler, CHANGE);
+    attachInterrupt(BUTTON_PIN, button_isr_handler, FALLING);
+
+    // Initialize OLED
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println("OLED initialization failed");
+        for (;;);
+    }
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.display();
+
+    // Start WiFi station mode and connect to external router
+    WiFi.mode(WIFI_STA);
+    Serial.println("Wi-Fi started");
+
+    WiFi.begin(RouterSSID, RouterPassword);
+
+    server.begin(); // start HTTP server
+
+    // Synchronize time using NTP server
+    configTime(0, 3600, "pool.ntp.org", "time.nist.gov");
+
+    // struct tm stores time/date information such as year, month, day, hour, minute, second
+    struct tm timeinfo;
+
+    // create FreeRTOS task
+    xTaskCreate(databaseWriteTask, "Database Write Task", 4096, NULL, 1, NULL);
+}
+
+// Calculate how many unsent data points remain in the queue
+int getStoredCount() {
+
+  // For simplicity, no atomic protection here
+  if (storedIndex >= sendIndex) {
+    return storedIndex - sendIndex;
+  } 
+  else {
+    return MAX_STORED_FREQUENCIES - (sendIndex - storedIndex);
+  }
+}
+
+// FreeRTOS task: periodically write frequency + timestamp to database
+void databaseWriteTask(void *parameter) {
+
+    // write every 5 seconds
+    const TickType_t writeInterval = pdMS_TO_TICKS(5000);
+
+    while (true) {
+
+      vTaskDelay(writeInterval);
+
+      if (WiFi.status() == WL_CONNECTED) {
+
+          int countToSend = getStoredCount();
+
+          if (countToSend == 0) {
+            Serial.println("[DB Task] No data to send.");
+            continue;
+          }
+
+          int tempRead = sendIndex;
+          String postData;
+
+          for (int i = 0; i < countToSend; i++) {
+
+            FrequencyData &fd = storedFrequencies[tempRead];
+
+            // convert Unix timestamp to local time structure
+            struct tm timeinfo;
+            localtime_r(&fd.timestamp, &timeinfo);
+
+            // format time as "YYYY-MM-DD HH:MM:SS"
+            char stamp[20];
+            strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+            // compute millisecond-level epoch timestamp
+            uint64_t msEpoch = (uint64_t)fd.timestamp * 1000ULL + (millis() % 1000);
+
+            postData += String(measurement) +
+                        ",device=ESP32 frequency=" +
+                        String(fd.frequency,3) +
+                        ",stamp=\"" +
+                        String(stamp) +
+                        "\" " +
+                        String(msEpoch) +
+                        "\n";
+
+            tempRead = (tempRead + 1) % MAX_STORED_FREQUENCIES;
+          }
+
+          // send HTTP POST request
+          HTTPClient http;
+
+          http.begin(influxdbUrl);
+          http.addHeader("Content-Type", "text/plain");
+          http.addHeader("Authorization", "Token s33wXkf6hb7JiLMGuD8kwnQtwgcXoxK-v2uu1AKmBV7_eikAS8cu2i00D0dxl6P9BNNONlc2dDb8sHEuz387TA==");
+
+          Serial.println("[DB Task] Sending batch data:\n" + postData);
+
+          int httpResponseCode = http.POST(postData);
+
+          if (httpResponseCode == 204) {
+
+              Serial.println("[DB Task] Data written to InfluxDB successfully!\n\n");
+
+              // move read index after successful transmission
+              sendIndex = (sendIndex + countToSend) % MAX_STORED_FREQUENCIES;
+
+          } 
+          else {
+
+              Serial.println("[DB Task] Error sending data: " + String(httpResponseCode));
+              String response = http.getString();
+              Serial.println("InfluxDB response body: " + response);
+          }
+
+          http.end();
+      }
+    }
+}
+
+void loop() {
+
+    static uint32_t lastTime = 0;
+    unsigned long current_Time = millis();
+
+    // Real-time frequency calculation
+    if (newTimeAvailable) {
+
+        uint32_t newTime = timeArray[0];
+        newTimeAvailable = false;
+
+        if (lastTime != 0) {
+
+            uint32_t timeDiff = newTime - lastTime;
+            frequency = 1e6 / (timeDiff / 10.0);
+
+            struct tm timeinfo;
+
+            if (!getLocalTime(&timeinfo)) {
+                Serial.println("Failed to get NTP time");
+                return;
+            }
+
+            time_t now;
+            time(&now);
+
+            // store new frequency and timestamp (circular buffer)
+            storedFrequencies[storedIndex].frequency = frequency;
+            storedFrequencies[storedIndex].timestamp = now;
+
+            storedIndex = (storedIndex + 1) % MAX_STORED_FREQUENCIES;
+        }
+
+        lastTime = newTime;
+    }
+
+    // button toggles display mode
+    if (buttonPressed) {
+
+        displayStored = !displayStored;
+        buttonPressed = false;
+    }
+
+    // continuously check ESP32 WiFi connection status
+    if (WiFi.status() == WL_CONNECTED && statu == false) {
+
+      Serial.println("Connected to external WiFi");
+      Serial.println("IP Address: " + WiFi.localIP().toString());
+
+      statu = true; // print IP only once while connected
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+
+      Serial.println("Failed/Waiting to connect to external WiFi");
+
+      WiFi.begin(RouterSSID, RouterPassword);
+      statu = false;
+    }
+
+    // update OLED display
+    updateOLED();
+}
+
+void updateOLED() {
+
+    display.clearDisplay();
+
+    char formattedDate[64];
+    struct tm timeinfo;
+
+    if (!getLocalTime(&timeinfo)) {
+        strcpy(formattedDate, "Time not set");
+    }
+    else {
+        strftime(formattedDate, sizeof(formattedDate), "%d-%m-%Y %H:%M:%S", &timeinfo);
+    }
+
+    if (!displayStored) {
+
+        // real-time frequency display
+        display.setCursor(0, 0);
+        display.print("Real-time Frequency:");
+
+        display.setCursor(0, 10);
+        display.print(frequency, 3);
+        display.print(" Hz");
+
+        display.setCursor(0, 20);
+        display.print(formattedDate);
+    }
+    else {
+
+        // display stored frequency list
+        display.setCursor(0, 0);
+        display.print("Stored Frequencies:");
+
+        for (int i = 0; i < MAX_STORED_FREQUENCIES; i++) {
+
+            display.setCursor(0, 10 + i * 20);
+            display.printf("%d: %.3f Hz", i + 1, storedFrequencies[i].frequency);
+
+            display.setCursor(0, 20 + i * 20);
+
+            strftime(formattedDate, sizeof(formattedDate),
+                     "%d-%m-%Y %H:%M:%S",
+                     localtime(&storedFrequencies[i].timestamp));
+
+            display.print(formattedDate);
+        }
+    }
+
+    display.display();
+}
