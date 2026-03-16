@@ -6,8 +6,9 @@ The system measures mains frequency with high precision and uploads timestamped 
 This project integrates **embedded hardware, signal conditioning circuits, real-time firmware, and cloud data logging** to create an open and scalable frequency monitoring platform.
 
 <p align="center">
-  <img src="images/device.png" width="400">
-  <img src="images/oled.png" width="220">
+  <img src="images/device.png" width="300">
+  <img src="images/oled.png" width="150">
+  <img src="images/database_display.png" width="270">
 </p>
 
 ## Overview
@@ -123,17 +124,28 @@ Main firmware modules include:
 
 This modular architecture ensures reliable real-time operation while handling network communication.
 
-## Frequency Measurement Results
+## Measurement Output and Database Logging
 
-The measured frequency is displayed locally on the OLED screen.
+Measured frequency values are displayed locally on the OLED display and simultaneously uploaded to a cloud database for storage and analysis.
 
 <p align="center">
-  <img src="images/oled_display.png" width="200">
+  <img src="images/oled_display.png" width="250">
+  <img src="images/database_display.png" width="400">
 </p>
 
-The firmware calculates frequency by measuring the time interval between pulse edges.
+The OLED screen provides real-time feedback of the measured grid frequency along with timestamps obtained from the NTP server.
 
-Averaging over multiple cycles improves measurement stability while maintaining responsiveness.
+In addition to the local display, frequency measurements are periodically transmitted to an **InfluxDB cloud database** through WiFi. Each data record includes:
+
+- Measured frequency value
+- Device identifier
+- Timestamp generated from NTP synchronization
+
+Data is formatted using the InfluxDB **line protocol**, allowing efficient storage and later analysis of long-term frequency behavior.
+
+To ensure reliability, the firmware maintains a **local circular buffer** that temporarily stores measurements if network connectivity is interrupted. Once the connection is restored, buffered data is automatically uploaded to the database.
+
+This mechanism enables continuous monitoring and prevents data loss during temporary WiFi outages.
 
 ---
 
