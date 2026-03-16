@@ -1,18 +1,16 @@
 # Grid Frequency Monitor (ESP32)
 
-A low-cost **real-time grid frequency monitoring device** based on ESP32.  
+A low-cost **real-time grid frequency monitoring device** based on ESP32.
 The system measures mains frequency with high precision and uploads timestamped data to a cloud database for monitoring and analysis.
 
 This project integrates **embedded hardware, signal conditioning circuits, real-time firmware, and cloud data logging** to create an open and scalable frequency monitoring platform.
 
-<p align="center">
-  <img src="image/overview.jpg" width="600">
-</p>
----
+![device](images/oled.png)
+
 
 ## Overview
 
-Maintaining stable grid frequency is critical for reliable power system operation.  
+Maintaining stable grid frequency is critical for reliable power system operation.
 Frequency reflects the real-time balance between power generation and demand, and deviations can indicate system disturbances or instability.
 
 This project develops a compact embedded monitoring device capable of:
@@ -39,7 +37,6 @@ The system consists of two main subsystems:
 - Hardware signal acquisition
 - Embedded firmware + cloud communication
 
-
 The device measures grid frequency in real time, displays it locally, and uploads the data to a cloud database for remote monitoring.
 
 ---
@@ -48,14 +45,14 @@ The device measures grid frequency in real time, displays it locally, and upload
 
 ### Main Components
 
-| Component | Function |
-|---|---|
-| ESP32 DevKitC | Main microcontroller |
-| LM339 Comparator | Signal conditioning |
-| Step-down transformer | 230V → 12V AC conversion |
-| Bridge rectifier | AC waveform processing |
-| OLED display | Real-time frequency display |
-| Switching power module | 220V → 5V DC power supply |
+| Component              | Function                    |
+| ---------------------- | --------------------------- |
+| ESP32 DevKitC          | Main microcontroller        |
+| LM339 Comparator       | Signal conditioning         |
+| Step-down transformer  | 230V → 12V AC conversion   |
+| Bridge rectifier       | AC waveform processing      |
+| OLED display           | Real-time frequency display |
+| Switching power module | 220V → 5V DC power supply  |
 
 ---
 
@@ -83,7 +80,6 @@ Frequency is calculated using **interrupt-based edge detection**.
 3. After **20 edges (10 cycles)**, the time interval is measured
 4. Frequency is calculated using: f = 10 / Δt
 
-
 Where:
 
 - Δt = time difference between two measurements
@@ -106,8 +102,6 @@ The firmware runs on **ESP32 with FreeRTOS**.
 
 Main modules:
 
-
-
 Key features:
 
 - Interrupt-driven signal capture
@@ -127,7 +121,6 @@ Each record contains:
 - frequency value
 - timestamp
 - device identifier
-
 
 ### Upload Mechanism
 
@@ -186,6 +179,7 @@ The system maintained stable operation and accurate measurements during continuo
 ## Example Output
 
 Example OLED display:
+
 <p align="center">
   <img src="image/oled.jpg" width="350">
 </p>
